@@ -2,14 +2,20 @@ import os
 import httpx
 from datetime import date, timedelta
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 try:
     from .auth import get_creds, AuthMiddleware  # package import
 except ImportError:
     from auth import get_creds, AuthMiddleware    # direct run
 
-# --- MCP server ---
-mcp = FastMCP("gohybrid-connector", json_response=True)
+# DNS rebinding protection is off — clients authenticate via Bearer token,
+# not browser cookies, so the attack vector doesn't apply.
+mcp = FastMCP(
+    "gohybrid-connector",
+    json_response=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 _INTERVALS_BASE = "https://intervals.icu/api/v1"
 _STRAVA_BASE = "https://www.strava.com/api/v3"
