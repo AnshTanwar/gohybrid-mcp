@@ -4,7 +4,7 @@
 
 Connect your training data to Claude in under 2 minutes. Works with Claude.ai (web), Claude Desktop, and any MCP-compatible client. Self-hostable, pip-installable, MIT licensed.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template)
+[![Deploy on Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 &nbsp;
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -30,10 +30,10 @@ Ask Claude things like:
 
 The fastest path. No install required.
 
-1. Go to **[gohybrid-mcp.up.railway.app/connect](https://gohybrid-mcp.up.railway.app/connect)**
+1. Go to **[gohybrid-mcp.onrender.com/connect](https://gohybrid-mcp.onrender.com/connect)**
 2. Enter your intervals.icu or Strava credentials → copy your `ghi_` token
 3. In **Claude.ai → Settings → Integrations → Add custom integration**:
-   - Server URL: `https://gohybrid-mcp.up.railway.app/mcp`
+   - Server URL: `https://gohybrid-mcp.onrender.com/mcp`
    - Header name: `Authorization`
    - Header value: `Bearer ghi_<your-token>`
 
@@ -47,7 +47,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 {
   "mcpServers": {
     "gohybrid": {
-      "url": "https://gohybrid-mcp.up.railway.app/mcp",
+      "url": "https://gohybrid-mcp.onrender.com/mcp",
       "headers": {
         "Authorization": "Bearer ghi_<your-token>"
       }
@@ -60,20 +60,20 @@ Generate your `ghi_` token at `/connect` as above.
 
 ---
 
-## Self-host on Railway
+## Self-host on Render
 
 One-click deploy — no configuration needed:
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template)
+[![Deploy on Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
 Or manually:
 1. Fork this repo
-2. [Create a Railway project](https://railway.app) → Deploy from GitHub → select your fork
-3. In Railway service settings → **Root Directory**: set to `gohybrid_mcp`
-4. Deploy — Railway reads `Procfile` and `railway.toml` automatically
-5. Your URL appears in the Railway dashboard
+2. [Create a Render project](https://render.com) → New Web Service → Deploy from GitHub → select your fork
+3. Set **Build command**: `pip install -r requirements.txt`
+4. Set **Start command**: `uvicorn server:create_server_app --factory --host 0.0.0.0 --port $PORT`
+5. Deploy — no environment variables required
 
-No environment variables required. All credentials arrive per-session via the `Authorization` header.
+All credentials arrive per-session via the `Authorization` header.
 
 ---
 
@@ -81,7 +81,7 @@ No environment variables required. All credentials arrive per-session via the `A
 
 ```bash
 git clone https://github.com/AnshTanwar/gohybrid-mcp.git
-cd gohybrid-mcp/gohybrid_mcp
+cd gohybrid-mcp
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python server.py --http
@@ -96,7 +96,7 @@ Then add to Claude Desktop config pointing at `http://localhost:8000/mcp`.
 ## Install as a Python library
 
 ```bash
-pip install git+https://github.com/AnshTanwar/gohybrid-mcp.git#subdirectory=gohybrid_mcp
+pip install git+https://github.com/AnshTanwar/gohybrid-mcp.git
 ```
 
 ### Embed in your FastAPI app
@@ -131,7 +131,7 @@ Getting your Strava credentials:
 1. Go to [strava.com/settings/api](https://www.strava.com/settings/api)
 2. Create an application (or use an existing one)
 3. Copy **Client ID**, **Client Secret**, and **Refresh Token** — all visible on that page
-4. Paste into [/connect](https://gohybrid-mcp.up.railway.app/connect) → Strava section
+4. Paste into [/connect](https://gohybrid-mcp.onrender.com/connect) → Strava section
 
 The refresh token doesn't expire (as long as you use the app occasionally). The server exchanges it for an access token on every request — you never need to refresh it manually.
 
@@ -143,7 +143,7 @@ The refresh token doesn't expire (as long as you use the app occasionally). The 
 
 1. Go to [intervals.icu](https://intervals.icu) → Settings → Developer → **API key**
 2. Copy your Athlete ID from the URL (`intervals.icu/athlete/i123456` → ID is `i123456`)
-3. Paste both into [/connect](https://gohybrid-mcp.up.railway.app/connect)
+3. Paste both into [/connect](https://gohybrid-mcp.onrender.com/connect)
 
 ---
 
