@@ -5,6 +5,13 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()                              # .env  (lower priority)
+    load_dotenv(".env.local", override=True)   # .env.local wins for local dev
+except ImportError:
+    pass
+
+try:
     from .auth import get_creds, AuthMiddleware  # package import
 except ImportError:
     from auth import get_creds, AuthMiddleware    # direct run
