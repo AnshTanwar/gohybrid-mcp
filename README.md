@@ -71,9 +71,20 @@ Or manually:
 2. [Create a Render project](https://render.com) → New Web Service → Deploy from GitHub → select your fork
 3. Set **Build command**: `pip install -r requirements.txt`
 4. Set **Start command**: `uvicorn server:create_server_app --factory --host 0.0.0.0 --port $PORT`
-5. Deploy — no environment variables required
+5. Deploy — no environment variables required for the basic flow
 
 All credentials arrive per-session via the `Authorization` header.
+
+### Optional: enable "Connect with Strava" (one-click)
+
+To let users connect Strava without copying tokens, register a Strava OAuth app at [strava.com/settings/api](https://www.strava.com/settings/api):
+
+- **Authorization Callback Domain:** your hostname (e.g. `gohybrid-mcp.onrender.com`)
+- Set two env vars on your service:
+  - `STRAVA_CLIENT_ID` — your app's client ID
+  - `STRAVA_CLIENT_SECRET` — your app's client secret
+
+When both are set, the orange **Connect with Strava** button auto-appears on `/connect` and `/oauth/authorize`. Users authorize on Strava once and the server handles refresh-token rotation internally — they never see a token.
 
 ---
 

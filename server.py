@@ -48,7 +48,7 @@ def _iget(path: str, params: dict | None = None) -> dict | list:
 
 def _strava_creds() -> dict:
     c = get_creds()
-    if c.get("p") != "strava":
+    if c.get("p") not in ("strava", "strava_oauth"):
         raise RuntimeError(
             "This tool requires a Strava token. "
             "Generate one at /connect using your Strava credentials."
@@ -58,15 +58,37 @@ def _strava_creds() -> dict:
 
 def _strava_access_token() -> str:
     """
-    Exchange a refresh token for a short-lived access token, or return the
-    access token directly if the caller used the legacy short-lived token format.
-    Token shapes supported:
-      Long-lived: {"p":"strava","cid":"...","cs":"...","rt":"..."}
-      Short-lived (legacy): {"p":"strava","t":"..."}
+    Exchange a refresh token for a short-lived access token.
+    Three token shapes supported:
+      p=strava_oauth: server-side OAuth app (one-click connect). cid/secret
+                      live in env vars STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET.
+      p=strava:       user's own Strava app (BYO). cid/cs/rt in the token.
+      p=strava (legacy): {"t": "..."} — pre-refresh-flow short-lived token.
     """
     c = _strava_creds()
+
+    if c.get("p") == "strava_oauth":
+        client_id = os.environ.get("STRAVA_CLIENT_ID", "")
+        client_secret = os.environ.get("STRAVA_CLIENT_SECRET", "")
+        if not client_id or not client_secret:
+            raise RuntimeError(
+                "Server is not configured for Strava OAuth. "
+                "Either set STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET, or use a BYO Strava token."
+            )
+        resp = httpx.post(
+            "https://www.strava.com/oauth/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": c["rt"],
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+
     if "rt" in c:
-        # Refresh token flow — long-lived, preferred
         resp = httpx.post(
             "https://www.strava.com/oauth/token",
             data={
@@ -79,7 +101,7 @@ def _strava_access_token() -> str:
         )
         resp.raise_for_status()
         return resp.json()["access_token"]
-    # Legacy short-lived token — expires every 6 hours, kept for backwards compat
+
     return c["t"]
 
 

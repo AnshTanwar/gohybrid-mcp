@@ -24,19 +24,26 @@ import time
 from typing import Any
 from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 try:
-    from .auth import decode_token
+    from .auth import decode_token, encode_token
 except ImportError:
-    from auth import decode_token
+    from auth import decode_token, encode_token
 
 
 # Signing secret for auth codes. Generated once per process. A restart
 # invalidates outstanding auth codes (60s window), which is acceptable.
 _SIGNING_SECRET = os.environ.get("OAUTH_SIGNING_SECRET") or secrets.token_urlsafe(32)
 _CODE_TTL_SECONDS = 300  # 5 min — auth codes are exchanged within seconds normally
+
+# Server-side Strava OAuth app (set on Render as env vars). When configured,
+# the "Connect with Strava" button is shown and users don't need to BYO Strava app.
+_STRAVA_CLIENT_ID = os.environ.get("STRAVA_CLIENT_ID", "")
+_STRAVA_CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET", "")
+_STRAVA_OAUTH_AVAILABLE = bool(_STRAVA_CLIENT_ID and _STRAVA_CLIENT_SECRET)
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -177,6 +184,14 @@ a{color:#4b5563;text-decoration:underline;text-decoration-color:#d1d5db;text-und
 a:hover{color:#111827;text-decoration-color:#9ca3af}
 .error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;padding:9px 12px;border-radius:6px;font-size:.8125rem;margin-bottom:16px;display:%ERROR_DISPLAY%}
 .footer{text-align:center;margin-top:20px;font-size:.75rem;color:#9ca3af}
+.strava-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px 14px;background:#FC4C02;color:#fff;border:none;border-radius:6px;font-size:.875rem;font-weight:600;cursor:pointer;text-decoration:none;margin-bottom:16px;letter-spacing:.01em;font-family:inherit;transition:background .12s}
+.strava-btn:hover{background:#e54400;color:#fff;text-decoration:none}
+.strava-btn svg{flex-shrink:0}
+.divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:#9ca3af;font-size:.6875rem;text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:#e5e7eb}
+.iv-steps{font-size:.8125rem;color:#4b5563;line-height:1.7;padding:10px 12px 10px 28px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb;margin-bottom:14px}
+.iv-steps li{margin-bottom:2px}
+.iv-steps b{color:#111827;font-weight:500}
 </style></head><body>
 <div class="container">
 <h1>Sign in to GoHybrid</h1>
@@ -186,12 +201,14 @@ a:hover{color:#111827;text-decoration-color:#9ca3af}
 
 <div class="card">
 <div class="consent">
-<b>Claude</b> will get read-only access to your activities, wellness data, and analytics from intervals.icu or Strava. Claude cannot modify or delete anything.
+<b>Claude</b> will get read-only access to your activities, wellness data, and analytics. Claude cannot modify or delete anything.
 </div>
+
+%STRAVA_BUTTON%
 
 <div class="tab-row">
 <div class="tab active" data-tab="intervals">intervals.icu</div>
-<div class="tab" data-tab="strava">Strava</div>
+<div class="tab" data-tab="strava">Strava (manual)</div>
 <div class="tab" data-tab="existing">Existing token</div>
 </div>
 
@@ -199,11 +216,15 @@ a:hover{color:#111827;text-decoration-color:#9ca3af}
 <input type="hidden" name="oauth_state" value="%OAUTH_STATE%">
 
 <div class="pane active" data-pane="intervals">
+<ol class="iv-steps">
+<li>Open <a href="https://intervals.icu/settings" target="_blank" rel="noopener">intervals.icu/settings</a> → <b>Developer Settings</b></li>
+<li>Copy your <b>Athlete ID</b> (e.g. <code>i523248</code>) and <b>API Key</b></li>
+<li>Paste both below</li>
+</ol>
 <label>Athlete ID</label>
 <input name="iv_id" placeholder="i523248" autocomplete="off">
 <label>API Key</label>
 <input name="iv_key" type="password" placeholder="Your intervals.icu API key" autocomplete="off">
-<p class="hint">Find both at <a href="https://intervals.icu/settings" target="_blank">intervals.icu/settings</a> → Developer.</p>
 </div>
 
 <div class="pane" data-pane="strava">
@@ -242,12 +263,21 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 """
 
 
+_STRAVA_BUTTON_HTML = """<a class="strava-btn" href="/auth/strava?mode=claude&oauth_state=%OAUTH_STATE%">
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>
+Connect with Strava
+</a>
+<div class="divider">or manually</div>"""
+
+
 def _render_authorize(oauth_state: str, error: str = "") -> str:
+    strava_button = _STRAVA_BUTTON_HTML.replace("%OAUTH_STATE%", oauth_state) if _STRAVA_OAUTH_AVAILABLE else ""
     return (
         _AUTHORIZE_PAGE
         .replace("%OAUTH_STATE%", oauth_state)
         .replace("%ERROR_DISPLAY%", "block" if error else "none")
         .replace("%ERROR_MESSAGE%", error)
+        .replace("%STRAVA_BUTTON%", strava_button)
     )
 
 
@@ -309,11 +339,6 @@ async def authorize_post(
         oauth_params = json.loads(_b64url_decode(oauth_state))
     except Exception:
         raise HTTPException(400, "invalid oauth_state")
-
-    try:
-        from .auth import encode_token
-    except ImportError:
-        from auth import encode_token
 
     if provider == "existing":
         if not existing_token.startswith("ghi_"):
@@ -380,3 +405,153 @@ async def token_endpoint(
         "token_type": "Bearer",
         "scope": "fitness:read",
     })
+
+
+# ── One-click Strava OAuth ──────────────────────────────────────────────
+# When STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET are set, users can click
+# "Connect with Strava" instead of pasting their own Strava app credentials.
+# The user's refresh_token is bound to the server's Strava app, and our
+# server uses its env-var credentials to refresh on every Strava API call.
+
+def _issue_oauth_code_and_redirect(ghi_token: str, oauth_params: dict) -> RedirectResponse:
+    code = _sign_code({
+        "token": ghi_token,
+        "redirect_uri": oauth_params["redirect_uri"],
+        "code_challenge": oauth_params.get("code_challenge", ""),
+        "code_challenge_method": oauth_params.get("code_challenge_method", "S256"),
+        "client_id": oauth_params.get("client_id", ""),
+        "exp": int(time.time()) + _CODE_TTL_SECONDS,
+    })
+    qs = urlencode({"code": code, "state": oauth_params.get("state", "")})
+    redirect = oauth_params["redirect_uri"]
+    sep = "&" if "?" in redirect else "?"
+    return RedirectResponse(f"{redirect}{sep}{qs}", status_code=302)
+
+
+@router.get("/auth/strava/available")
+async def strava_oauth_available() -> JSONResponse:
+    """Used by the /connect page to decide whether to show the one-click button."""
+    return JSONResponse({"available": _STRAVA_OAUTH_AVAILABLE})
+
+
+@router.get("/auth/strava")
+async def strava_oauth_start(request: Request, oauth_state: str = "", mode: str = "claude") -> RedirectResponse:
+    """
+    Kick off Strava OAuth. Two modes:
+      mode=claude  → user is mid-Claude OAuth flow, oauth_state carries the
+                     original Claude redirect_uri + PKCE challenge.
+      mode=direct  → user came from /connect, just wants a ghi_ token.
+    """
+    if not _STRAVA_OAUTH_AVAILABLE:
+        raise HTTPException(503, "Strava OAuth is not configured on this server. Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET.")
+
+    base = _server_base_url(request)
+    callback = f"{base}/auth/strava/callback"
+    state = _b64url_encode(json.dumps({
+        "m": mode,
+        "os": oauth_state,
+    }, separators=(",", ":")).encode())
+
+    strava_url = (
+        f"https://www.strava.com/oauth/authorize"
+        f"?client_id={_STRAVA_CLIENT_ID}"
+        f"&response_type=code"
+        f"&redirect_uri={callback}"
+        f"&approval_prompt=auto"
+        f"&scope=read,activity:read_all,profile:read_all"
+        f"&state={state}"
+    )
+    return RedirectResponse(strava_url, status_code=302)
+
+
+@router.get("/auth/strava/callback")
+async def strava_oauth_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+):
+    """User just authorized on Strava — exchange the code for a refresh token."""
+    if error:
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;padding:48px;max-width:480px;margin:0 auto'>"
+            f"<h2>Strava authorization failed</h2><p>{error}</p>"
+            f"<p><a href='/connect'>← Back to connect</a></p></body></html>",
+            status_code=400,
+        )
+    if not code:
+        raise HTTPException(400, "missing authorization code from Strava")
+
+    try:
+        state_payload = json.loads(_b64url_decode(state))
+    except Exception:
+        raise HTTPException(400, "invalid state")
+
+    # Exchange code for refresh_token via Strava
+    try:
+        resp = httpx.post(
+            "https://www.strava.com/oauth/token",
+            data={
+                "client_id": _STRAVA_CLIENT_ID,
+                "client_secret": _STRAVA_CLIENT_SECRET,
+                "code": code,
+                "grant_type": "authorization_code",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Strava token exchange failed: {exc}")
+
+    refresh_token = data.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(502, "Strava did not return a refresh_token")
+
+    # The ghi_ token only carries the per-user refresh_token. The server-side
+    # client_id/secret stay in env vars — never embedded in user tokens.
+    ghi_token = encode_token({"p": "strava_oauth", "rt": refresh_token})
+
+    mode = state_payload.get("m", "direct")
+    if mode == "claude" and state_payload.get("os"):
+        try:
+            oauth_params = json.loads(_b64url_decode(state_payload["os"]))
+        except Exception:
+            raise HTTPException(400, "invalid oauth_state in callback")
+        return _issue_oauth_code_and_redirect(ghi_token, oauth_params)
+
+    # Direct mode — show the user their ghi_ token
+    athlete = data.get("athlete", {})
+    name = f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip()
+    return HTMLResponse(_render_strava_success(ghi_token, name))
+
+
+def _render_strava_success(ghi_token: str, athlete_name: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strava connected — GoHybrid</title>
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;background:#fafafa;color:#1a1a1a;min-height:100vh;padding:64px 20px;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}}
+.container{{max-width:480px;margin:0 auto}}
+h1{{font-size:1.25rem;font-weight:600;margin-bottom:4px;letter-spacing:-0.01em}}
+.subtitle{{color:#6b7280;margin-bottom:28px;font-size:.875rem}}
+.card{{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:24px}}
+.success{{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:10px 12px;border-radius:6px;font-size:.8125rem;margin-bottom:18px}}
+.token-box{{background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px;font-family:"SFMono-Regular",Consolas,monospace;font-size:.75rem;word-break:break-all;color:#111827;margin:10px 0;line-height:1.55}}
+.btn{{background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;font-size:.75rem;cursor:pointer;font-weight:500}}
+.btn:hover{{background:#e5e7eb}}
+.label{{font-size:.75rem;color:#6b7280;font-weight:500;margin-top:14px;margin-bottom:5px}}
+a{{color:#4b5563}}
+</style></head><body>
+<div class="container">
+<h1>Strava connected</h1>
+<p class="subtitle">{('Welcome, ' + athlete_name + '.') if athlete_name else 'Connection successful.'}</p>
+<div class="card">
+<div class="success">✓ Your Strava account is linked. Use the token below in Claude Desktop, or use the OAuth flow for Claude.ai.</div>
+<div class="label">Your ghi_ token</div>
+<div class="token-box" id="t">{ghi_token}</div>
+<button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('t').textContent).then(()=>{{this.textContent='Copied';setTimeout(()=>this.textContent='Copy token',1200)}})">Copy token</button>
+<p style="margin-top:18px;font-size:.8125rem;color:#4b5563">Server URL: <code style="background:#f9fafb;padding:1px 5px;border-radius:4px;border:1px solid #e5e7eb">{{SERVER}}/mcp</code></p>
+</div>
+</div></body></html>"""
