@@ -22,8 +22,19 @@ from .auth import (
     _current_creds,
 )
 from .server import mcp, create_mcp_app, create_server_app
+from .parsers import parse_activity
+from .metrics import (
+    normalized_power,
+    intensity_factor,
+    tss,
+    hr_tss,
+    power_curve,
+    critical_power,
+    training_load,
+    analyze,
+)
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "encode_token",
     "decode_token",
@@ -32,4 +43,13 @@ __all__ = [
     "mcp",
     "create_mcp_app",
     "create_server_app",
+    "parse_activity",
+    "normalized_power",
+    "intensity_factor",
+    "tss",
+    "hr_tss",
+    "power_curve",
+    "critical_power",
+    "training_load",
+    "analyze",
 ]

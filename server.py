@@ -585,6 +585,88 @@ def get_strava_activity_laps(activity_id: str) -> list[dict]:
     return _sget(f"/activities/{activity_id}/laps")
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# FILE-BASED ACTIVITY ANALYSIS (works for any device — no auth required)
+# ═══════════════════════════════════════════════════════════════════════
+
+try:
+    from .parsers import parse_activity as _parse_activity
+    from .metrics import analyze as _analyze_metrics, training_load as _training_load
+except ImportError:
+    from parsers import parse_activity as _parse_activity
+    from metrics import analyze as _analyze_metrics, training_load as _training_load
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def analyze_activity_file(url: str, ftp: int | None = None, lthr: int | None = None) -> dict:
+    """
+    Parse a FIT, TCX, or GPX activity file from a URL and compute training metrics.
+
+    Works for ANY device that exports activity files: Garmin, COROS, Wahoo,
+    Polar, Suunto, Zepp/Amazfit, etc. — no integration required.
+
+    Args:
+        url: HTTPS URL to a .fit / .tcx / .gpx file (Dropbox, Google Drive,
+             tmpfiles.org, S3, etc.). File type is auto-detected.
+        ftp: Functional Threshold Power in watts. Required to compute TSS,
+             Normalized Power, Intensity Factor. Skip if you don't know it.
+        lthr: Lactate Threshold HR. Enables hrTSS fallback when there's no
+              power data.
+
+    Returns activity summary (sport, duration, distance, HR/power averages,
+    elevation gain, laps) plus computed metrics (NP, TSS, IF, power curve,
+    critical power, W'). Streams (per-second arrays) are NOT returned to
+    keep response size sane — use get_activity_streams from intervals.icu/Strava
+    if you need raw streams.
+
+    WARNING: file must be <50MB.
+    """
+    resp = httpx.get(url, timeout=30, follow_redirects=True)
+    resp.raise_for_status()
+    if len(resp.content) > 50 * 1024 * 1024:
+        raise ValueError("file too large (>50MB)")
+
+    parsed = _parse_activity(resp.content)
+    metrics = _analyze_metrics(parsed, ftp=ftp, lthr=lthr)
+
+    return {
+        "summary": parsed["summary"],
+        "laps": parsed["laps"],
+        "metrics": metrics,
+        "stream_keys_available": sorted(parsed["streams"].keys()),
+        "sample_count": len(parsed["streams"].get("time", [])),
+    }
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def compute_training_load(daily_tss: list[float], ctl_days: int = 42, atl_days: int = 7) -> dict:
+    """
+    Compute Banister CTL (Fitness), ATL (Fatigue), and TSB (Form) from a
+    list of daily TSS values.
+
+    Use this when you have TSS data from multiple sources (e.g. mixing
+    intervals.icu activities + Strava activities + uploaded files) and
+    want a unified training-load curve.
+
+    Args:
+        daily_tss: list of daily TSS values, oldest first, ONE PER CALENDAR DAY.
+                   Use 0.0 for rest days — don't skip dates.
+        ctl_days: time constant for chronic load (default 42 = Coggan standard)
+        atl_days: time constant for acute load (default 7 = Coggan standard)
+
+    Returns: {"ctl": [...], "atl": [...], "tsb": [...]} — same length as input.
+    Latest values are ctl[-1], atl[-1], tsb[-1].
+
+    TSB interpretation:
+      > +25  : Detraining (form too high, fitness dropping)
+      +5..+25: Fresh, race-ready
+      -10..+5: Maintaining
+      -30..-10: Building (productive overload)
+      < -30  : Overreaching / risk zone
+    """
+    return _training_load(daily_tss, ctl_days=ctl_days, atl_days=atl_days)
+
+
 def create_mcp_app():
     """
     Return the raw MCP ASGI app — use this to mount GoHybrid fitness tools
