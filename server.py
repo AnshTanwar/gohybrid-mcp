@@ -604,6 +604,12 @@ def create_server_app():
     app = FastAPI(title="GoHybrid MCP Connector", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.add_middleware(AuthMiddleware)
 
+    try:
+        from .oauth import router as oauth_router
+    except ImportError:
+        from oauth import router as oauth_router
+    app.include_router(oauth_router)
+
     @app.get("/connect", include_in_schema=False)
     async def connect_page():
         return _FileResponse(os.path.join(_HERE, "connect.html"))

@@ -38,6 +38,13 @@ def get_creds() -> dict[str, Any]:
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
+    """
+    Reads `Authorization: Bearer ghi_<token>` and binds creds to the request
+    context. On /mcp 401 responses, adds a `WWW-Authenticate` header pointing
+    to the protected-resource metadata so MCP clients can auto-discover the
+    auth server (RFC 9728 §5.1).
+    """
+
     async def dispatch(self, request: Request, call_next):
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer ghi_"):
@@ -45,4 +52,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 _current_creds.set(decode_token(auth[7:]))
             except ValueError:
                 pass  # tools will surface the error when creds are accessed
-        return await call_next(request)
+
+        response = await call_next(request)
+
+        if response.status_code == 401 and request.url.path.startswith("/mcp"):
+            base = f"{request.url.scheme}://{request.headers.get('host', '')}"
+            response.headers["WWW-Authenticate"] = (
+                f'Bearer realm="gohybrid-mcp", '
+                f'resource_metadata="{base}/.well-known/oauth-protected-resource"'
+            )
+        return response

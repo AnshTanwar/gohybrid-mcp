@@ -5,131 +5,91 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GoHybrid — Connect to Claude</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f1117; color: #e8eaf0;
-      min-height: 100vh; padding: 48px 20px;
-    }
-    .container { max-width: 620px; margin: 0 auto; }
-    h1 { font-size: 1.7rem; font-weight: 700; margin-bottom: 6px; }
-    .subtitle { color: #8b92a8; margin-bottom: 44px; font-size: 0.95rem; }
-    .card {
-      background: #1a1d2e; border: 1px solid #2a2d3e;
-      border-radius: 14px; padding: 30px; margin-bottom: 24px;
-    }
-    .card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
-    .badge {
-      font-size: 0.7rem; font-weight: 700; letter-spacing: .05em;
-      padding: 3px 9px; border-radius: 20px; text-transform: uppercase;
-    }
-    .badge-intervals { background: #1e3a5f; color: #60a5fa; }
-    .badge-strava   { background: #3b1a0e; color: #fb923c; }
-    h2 { font-size: 1.05rem; font-weight: 600; }
-    label { display: block; font-size: 0.82rem; color: #8b92a8; margin-bottom: 5px; margin-top: 14px; }
-    input {
-      width: 100%; padding: 10px 13px; background: #0f1117;
-      border: 1px solid #2a2d3e; border-radius: 8px;
-      color: #e8eaf0; font-size: 0.93rem; outline: none; transition: border .15s;
-    }
-    input:focus { border-color: #5b6af0; }
-    .btn-primary {
-      margin-top: 18px; width: 100%; padding: 11px;
-      background: #5b6af0; color: #fff; border: none;
-      border-radius: 8px; font-size: 0.95rem; font-weight: 600;
-      cursor: pointer; transition: background .15s;
-    }
-    .btn-primary:hover { background: #4a58e0; }
-    .result { display: none; margin-top: 22px; }
-    .result-label { font-size: 0.78rem; color: #8b92a8; margin-bottom: 6px; }
-    .token-box {
-      background: #0f1117; border: 1px solid #2a2d3e; border-radius: 8px;
-      padding: 12px 14px; font-family: "SFMono-Regular", Consolas, monospace;
-      font-size: 0.78rem; word-break: break-all; color: #a3e635; margin-bottom: 12px;
-    }
-    .btn-copy {
-      background: #2a2d3e; color: #e8eaf0; border: none;
-      padding: 7px 16px; border-radius: 7px; font-size: 0.82rem;
-      cursor: pointer; margin-bottom: 20px; transition: background .15s;
-    }
-    .btn-copy:hover { background: #3a3d4e; }
-    .steps { font-size: 0.84rem; color: #8b92a8; line-height: 1.8; }
-    .steps b { color: #e8eaf0; }
-    code {
-      background: #0f1117; padding: 2px 6px; border-radius: 4px;
-      font-family: monospace; font-size: 0.8rem; color: #a3e635; word-break: break-all;
-    }
-    a { color: #818cf8; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .divider { border: none; border-top: 1px solid #2a2d3e; margin: 32px 0; }
-    .footer { text-align: center; color: #4a4d60; font-size: 0.8rem; margin-top: 40px; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;background:#fafafa;color:#1a1a1a;min-height:100vh;padding:64px 20px;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+    .container{max-width:480px;margin:0 auto}
+    h1{font-size:1.25rem;font-weight:600;margin-bottom:4px;letter-spacing:-0.01em}
+    .subtitle{color:#6b7280;margin-bottom:28px;font-size:.875rem;line-height:1.55}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;margin-bottom:16px}
+    .card-header{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+    .badge{font-size:.6875rem;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:4px;text-transform:uppercase;background:#f3f4f6;color:#4b5563;border:1px solid #e5e7eb}
+    h2{font-size:.9375rem;font-weight:600;color:#111827}
+    label{display:block;font-size:.75rem;color:#4b5563;margin-bottom:5px;margin-top:14px;font-weight:500}
+    label:first-of-type{margin-top:0}
+    input{width:100%;padding:8px 11px;background:#fff;border:1px solid #d1d5db;border-radius:6px;color:#111827;font-size:.8125rem;outline:none;transition:border-color .12s,box-shadow .12s;font-family:inherit}
+    input:focus{border-color:#111827;box-shadow:0 0 0 3px rgba(17,24,39,.08)}
+    input::placeholder{color:#9ca3af}
+    .btn-primary{margin-top:18px;width:100%;padding:9px 14px;background:#111827;color:#fff;border:none;border-radius:6px;font-size:.8125rem;font-weight:500;cursor:pointer;transition:background .12s;font-family:inherit;letter-spacing:.01em}
+    .btn-primary:hover{background:#000}
+    .result{display:none;margin-top:18px}
+    .result-label{font-size:.75rem;color:#6b7280;margin-bottom:6px;font-weight:500}
+    .token-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px;font-family:"SFMono-Regular",Consolas,monospace;font-size:.75rem;word-break:break-all;color:#111827;margin-bottom:10px;line-height:1.55}
+    .btn-copy{background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 12px;border-radius:6px;font-size:.75rem;cursor:pointer;margin-bottom:16px;transition:background .12s;font-family:inherit;font-weight:500}
+    .btn-copy:hover{background:#e5e7eb}
+    .steps{font-size:.8125rem;color:#4b5563;line-height:1.7;padding:12px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb}
+    .steps b{color:#111827;font-weight:500}
+    code{background:#fff;padding:1px 5px;border-radius:4px;font-family:"SFMono-Regular",Consolas,monospace;font-size:.75rem;color:#111827;border:1px solid #e5e7eb;word-break:break-all}
+    a{color:#4b5563;text-decoration:underline;text-decoration-color:#d1d5db;text-underline-offset:2px}
+    a:hover{color:#111827;text-decoration-color:#9ca3af}
+    .hint{font-size:.75rem;color:#6b7280;margin-top:8px;line-height:1.5}
+    .footer{text-align:center;color:#9ca3af;font-size:.75rem;margin-top:24px}
   </style>
 </head>
 <body>
   <div class="container">
     <h1>GoHybrid MCP Connector</h1>
-    <p class="subtitle">Generate a token once. Paste it into Claude. Your fitness data is available everywhere.</p>
+    <p class="subtitle">Generate a token once. Paste it into Claude Desktop, or pass it as an Authorization header. Your fitness data is available everywhere.</p>
 
-    <!-- intervals.icu -->
     <div class="card">
       <div class="card-header">
-        <span class="badge badge-intervals">intervals.icu</span>
+        <span class="badge">intervals.icu</span>
         <h2>Connect intervals.icu</h2>
       </div>
-      <label>Athlete ID <a href="https://intervals.icu" target="_blank">(visible in your profile URL: intervals.icu/athlete/<b>i123456</b>)</a></label>
-      <input id="iv-id" type="text" placeholder="e.g. i523248" autocomplete="off" />
-      <label>API Key <a href="https://intervals.icu/settings" target="_blank">(Settings → Developer → API key)</a></label>
-      <input id="iv-key" type="password" placeholder="Paste your API key" autocomplete="off" />
-      <button class="btn-primary" onclick="genIntervals()">Generate Token</button>
+      <label>Athlete ID</label>
+      <input id="iv-id" type="text" placeholder="i523248" autocomplete="off" />
+      <label>API Key</label>
+      <input id="iv-key" type="password" placeholder="Your intervals.icu API key" autocomplete="off" />
+      <p class="hint">Find both at <a href="https://intervals.icu/settings" target="_blank">intervals.icu/settings</a> → Developer.</p>
+      <button class="btn-primary" onclick="genIntervals()">Generate token</button>
       <div id="iv-result" class="result">
         <div class="result-label">Your token — keep this private</div>
         <div id="iv-token" class="token-box"></div>
         <button class="btn-copy" onclick="copy('iv-token', this)">Copy token</button>
         <div class="steps">
-          <b>Add to Claude in 3 steps:</b><br/>
-          1. Open Claude.ai → Settings → Integrations → <b>Add custom integration</b><br/>
-          2. Server URL: <code id="iv-url"></code><br/>
-          3. Header: name <code>Authorization</code> → value <code id="iv-header"></code>
+          <b>Claude Desktop:</b> add to <code>claude_desktop_config.json</code><br/>
+          <b>Server URL:</b> <code id="iv-url"></code><br/>
+          <b>Header:</b> <code>Authorization</code> → <code id="iv-header"></code>
         </div>
       </div>
     </div>
 
-    <!-- Strava -->
     <div class="card">
       <div class="card-header">
-        <span class="badge badge-strava">Strava</span>
+        <span class="badge">Strava</span>
         <h2>Connect Strava</h2>
       </div>
-      <p style="font-size:.82rem;color:#8b92a8;margin-bottom:14px;">
-        Uses your refresh token — doesn't expire. Get all three values from
-        <a href="https://www.strava.com/settings/api" target="_blank">strava.com/settings/api</a>.
-      </p>
+      <p class="hint" style="margin-top:0;margin-bottom:14px">Uses your refresh token — doesn't expire. Get all three values from <a href="https://www.strava.com/settings/api" target="_blank">strava.com/settings/api</a>.</p>
       <label>Client ID</label>
-      <input id="st-cid" type="text" placeholder="e.g. 12345" autocomplete="off" />
+      <input id="st-cid" type="text" placeholder="12345" autocomplete="off" />
       <label>Client Secret</label>
-      <input id="st-cs" type="password" placeholder="Paste your client secret" autocomplete="off" />
+      <input id="st-cs" type="password" placeholder="Your client secret" autocomplete="off" />
       <label>Refresh Token</label>
-      <input id="st-rt" type="password" placeholder="Paste your refresh token" autocomplete="off" />
-      <p style="font-size:.78rem;color:#6b7280;margin-top:8px;">
-        Don't see a refresh token? Click "Authorize" on the settings page first,
-        or see the <a href="https://github.com/AnshTanwar/gohybrid-mcp#strava-setup" target="_blank">setup guide</a>.
-      </p>
-      <button class="btn-primary" onclick="genStrava()">Generate Token</button>
+      <input id="st-rt" type="password" placeholder="Your refresh token" autocomplete="off" />
+      <p class="hint">Don't see a refresh token? Click "Authorize" on the settings page first.</p>
+      <button class="btn-primary" onclick="genStrava()">Generate token</button>
       <div id="st-result" class="result">
         <div class="result-label">Your token — keep this private</div>
         <div id="st-token-val" class="token-box"></div>
         <button class="btn-copy" onclick="copy('st-token-val', this)">Copy token</button>
         <div class="steps">
-          <b>Add to Claude in 3 steps:</b><br/>
-          1. Open Claude.ai → Settings → Integrations → <b>Add custom integration</b><br/>
-          2. Server URL: <code id="st-url"></code><br/>
-          3. Header: name <code>Authorization</code> → value <code id="st-header"></code>
+          <b>Claude Desktop:</b> add to <code>claude_desktop_config.json</code><br/>
+          <b>Server URL:</b> <code id="st-url"></code><br/>
+          <b>Header:</b> <code>Authorization</code> → <code id="st-header"></code>
         </div>
       </div>
     </div>
 
-    <hr class="divider"/>
-    <div class="footer">GoHybrid · fitness coaching powered by AI</div>
+    <p class="footer">For Claude.ai (web), use the OAuth flow at <code>/oauth/authorize</code> instead.</p>
   </div>
 
   <script>
@@ -170,7 +130,7 @@
     function copy(id, btn) {
       navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => {
         const orig = btn.textContent;
-        btn.textContent = 'Copied!';
+        btn.textContent = 'Copied';
         setTimeout(() => btn.textContent = orig, 1500);
       });
     }
