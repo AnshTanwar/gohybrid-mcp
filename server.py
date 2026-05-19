@@ -258,18 +258,50 @@ def get_activity_intervals(activity_id: str) -> dict:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-def get_activity_streams(activity_id: str, stream_types: str = "heartrate,velocity_smooth,cadence,watts,altitude") -> list[dict]:
+def get_activity_streams(activity_id: str, stream_types: str = "heartrate,velocity_smooth,cadence,watts,altitude") -> dict:
     """
-    Second-by-second data streams for one activity. Each stream has type, name, data[].
+    Second-by-second data streams for one activity.
+
     Available stream types: time, watts, cadence, heartrate, distance, altitude,
     latlng, velocity_smooth, torque, fixed_altitude.
     Specify comma-separated types to limit response size.
-    WARNING: can be large — filter to only needed streams.
+    WARNING: per-second streams are large — only request what you need.
+
+    Returns: {"streams": [...], "available": [...], "missing": [...]}.
+    When a requested stream doesn't exist (e.g. watts for a run without a
+    power meter, or an activity without GPS), it appears in "missing"
+    rather than raising — so Claude can degrade gracefully.
     """
-    return _iget(
-        f"/activity/{activity_id}/streams",
-        {"types": stream_types},
-    )
+    requested = [s.strip() for s in stream_types.split(",") if s.strip()]
+    c = _intervals_creds()
+    try:
+        r = httpx.get(
+            f"{_INTERVALS_BASE}/activity/{activity_id}/streams",
+            params={"types": stream_types},
+            auth=("API_KEY", c["k"]),
+            timeout=30,
+        )
+        if r.status_code == 404:
+            return {
+                "streams": [],
+                "available": [],
+                "missing": requested,
+                "note": "intervals.icu returned 404 — this activity has no streams.",
+            }
+        r.raise_for_status()
+        raw = r.json()
+    except httpx.HTTPStatusError as exc:
+        return {
+            "streams": [],
+            "available": [],
+            "missing": requested,
+            "note": f"intervals.icu API error {exc.response.status_code}: {exc.response.text[:200]}",
+        }
+
+    streams = raw if isinstance(raw, list) else []
+    available = sorted({s.get("type") for s in streams if s.get("type")})
+    missing = [s for s in requested if s not in available]
+    return {"streams": streams, "available": available, "missing": missing}
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
@@ -557,17 +589,51 @@ def get_strava_activity_detail(activity_id: str) -> dict:
 def get_strava_activity_streams(
     activity_id: str,
     stream_types: str = "heartrate,velocity_smooth,cadence,watts,altitude,distance",
-) -> list[dict]:
+) -> dict:
     """
     Second-by-second data streams for one Strava activity.
+
     stream_types: comma-separated from heartrate, velocity_smooth, cadence,
     watts, altitude, distance, latlng, time, moving, grade_smooth.
-    WARNING: can be large — only request needed streams.
+    WARNING: per-second streams are large — only request what you need.
+
+    Returns: {"streams": {<type>: [...], ...}, "available": [...], "missing": [...]}.
+    When a requested stream doesn't exist on the activity (e.g. watts for a run
+    without a power meter, or any stream for a manual/too-short activity),
+    it appears in "missing" rather than raising — so Claude can degrade
+    gracefully instead of asserting the API failed.
     """
-    return _sget(
-        f"/activities/{activity_id}/streams",
-        {"keys": stream_types, "key_by_type": "true"},
-    )
+    requested = [s.strip() for s in stream_types.split(",") if s.strip()]
+    token = _strava_access_token()
+    try:
+        r = httpx.get(
+            f"{_STRAVA_BASE}/activities/{activity_id}/streams",
+            params={"keys": stream_types, "key_by_type": "true"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if r.status_code == 404:
+            return {
+                "streams": {},
+                "available": [],
+                "missing": requested,
+                "note": "Strava returned 404 — this activity has no streams "
+                        "(manual entry, indoor without sensors, or too short).",
+            }
+        r.raise_for_status()
+        raw = r.json()
+    except httpx.HTTPStatusError as exc:
+        return {
+            "streams": {},
+            "available": [],
+            "missing": requested,
+            "note": f"Strava API error {exc.response.status_code}: {exc.response.text[:200]}",
+        }
+
+    streams = {k: v.get("data", []) for k, v in raw.items()} if isinstance(raw, dict) else {}
+    available = sorted(streams.keys())
+    missing = [s for s in requested if s not in streams]
+    return {"streams": streams, "available": available, "missing": missing}
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
