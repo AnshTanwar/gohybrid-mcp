@@ -1,4 +1,6 @@
 import os
+import time
+import hashlib
 import httpx
 from datetime import date, timedelta
 from mcp.server.fastmcp import FastMCP
@@ -26,6 +28,10 @@ mcp = FastMCP(
 
 _INTERVALS_BASE = "https://intervals.icu/api/v1"
 _STRAVA_BASE = "https://www.strava.com/api/v3"
+
+# In-memory Strava access token cache: sha256(refresh_token) → (access_token, expires_at)
+# Access tokens live 6 hours; we evict 5 min early to avoid racing expiry.
+_strava_token_cache: dict[str, tuple[str, float]] = {}
 
 
 # ── Credential helpers ───────────────────────────────────────────────────────
@@ -65,51 +71,74 @@ def _strava_creds() -> dict:
 
 def _strava_access_token() -> str:
     """
-    Exchange a refresh token for a short-lived access token.
-    Three token shapes supported:
-      p=strava_oauth: server-side OAuth app (one-click connect). cid/secret
-                      live in env vars STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET.
-      p=strava:       user's own Strava app (BYO). cid/cs/rt in the token.
-      p=strava (legacy): {"t": "..."} — pre-refresh-flow short-lived token.
+    Return a valid Strava access token, using an in-memory cache so we
+    only call Strava's token endpoint once per 6-hour window instead of
+    on every tool call.
+
+    Three credential shapes:
+      p=strava_oauth  — server-side app; client_id/secret in env vars.
+      p=strava        — BYO app; cid/cs/rt embedded in ghi_ token.
+      p=strava legacy — {"t": "..."} short-lived token (no refresh).
     """
     c = _strava_creds()
 
+    # Legacy short-lived token — nothing to cache or refresh.
+    if "rt" not in c and c.get("p") != "strava_oauth":
+        return c["t"]
+
+    # Build a stable cache key from the refresh token.
+    rt = c["rt"]
+    cache_key = hashlib.sha256(rt.encode()).hexdigest()
+
+    cached = _strava_token_cache.get(cache_key)
+    if cached and time.time() < cached[1]:
+        return cached[0]
+
+    # Exchange refresh token for a new access token.
     if c.get("p") == "strava_oauth":
         client_id = os.environ.get("STRAVA_CLIENT_ID", "")
         client_secret = os.environ.get("STRAVA_CLIENT_SECRET", "")
         if not client_id or not client_secret:
             raise RuntimeError(
                 "Server is not configured for Strava OAuth. "
-                "Either set STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET, or use a BYO Strava token."
+                "Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET environment variables."
             )
-        resp = httpx.post(
-            "https://www.strava.com/oauth/token",
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": c["rt"],
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
+        payload = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": rt,
+        }
+    else:
+        payload = {
+            "client_id": c["cid"],
+            "client_secret": c["cs"],
+            "grant_type": "refresh_token",
+            "refresh_token": rt,
+        }
 
-    if "rt" in c:
-        resp = httpx.post(
-            "https://www.strava.com/oauth/token",
-            data={
-                "client_id": c["cid"],
-                "client_secret": c["cs"],
-                "grant_type": "refresh_token",
-                "refresh_token": c["rt"],
-            },
-            timeout=15,
-        )
+    try:
+        resp = httpx.post("https://www.strava.com/oauth/token", data=payload, timeout=15)
         resp.raise_for_status()
-        return resp.json()["access_token"]
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 401:
+            raise RuntimeError(
+                "Strava authorization has expired or been revoked. "
+                "Re-connect at /connect to get a fresh token."
+            ) from exc
+        raise RuntimeError(
+            f"Strava token refresh failed ({status}): {exc.response.text[:200]}"
+        ) from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Could not reach Strava to refresh token: {exc}") from exc
 
-    return c["t"]
+    data = resp.json()
+    access_token = data["access_token"]
+    # Cache until reported expiry (minus 5 min safety margin).
+    expires_at = data.get("expires_at", time.time() + 21600) - 300
+    _strava_token_cache[cache_key] = (access_token, expires_at)
+    return access_token
 
 
 def _sget(path: str, params: dict | None = None) -> dict | list:
