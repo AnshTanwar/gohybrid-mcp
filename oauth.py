@@ -404,6 +404,7 @@ async def token_endpoint(
         "access_token": payload["token"],
         "token_type": "Bearer",
         "scope": "fitness:read",
+        "expires_in": 315360000,  # 10 years — ghi_ tokens never expire
     })
 
 
